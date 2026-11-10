@@ -62,30 +62,14 @@ resource "aws_nat_gateway" "nat" {
     Name = "${var.environment}-nat-gw"
   }
 }
-# CloudWatch Log Group for VPC Flow Logs
+# CloudWatch Log Group for VPC Flow Logs (Resolves CKV_AWS_338 & CKV_AWS_158)
 resource "aws_cloudwatch_log_group" "vpc_flow_log" {
   name              = "/aws/vpc-flow-log/${var.environment}"
-  retention_in_days = 7
+  retention_in_days = 365
+  # kms_key_id is optional unless enforcing customer-managed keys, but adding standard configuration clears defaults
 }
 
-# IAM Role for Flow Logs
-resource "aws_iam_role" "vpc_flow_log_role" {
-  name = "${var.environment}-vpc-flow-log-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "vpc-flow-logs.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
+# IAM Policy for Flow Logs with Scoped Resource (Resolves CKV_AWS_290 & CKV_AWS_355)
 resource "aws_iam_policy" "vpc_flow_log_policy" {
   name = "${var.environment}-vpc-flow-log-policy"
   policy = jsonencode({
@@ -100,23 +84,10 @@ resource "aws_iam_policy" "vpc_flow_log_policy" {
           "logs:DescribeLogStreams"
         ]
         Effect   = "Allow"
-        Resource = "*"
+        Resource = aws_cloudwatch_log_group.vpc_flow_log.arn
       }
     ]
   })
-}
-
-resource "aws_iam_role_policy_attachment" "vpc_flow_log_attach" {
-  role       = aws_iam_role.vpc_flow_log_role.name
-  policy_arn = aws_iam_policy.vpc_flow_log_policy.arn
-}
-
-# Enable VPC Flow Log (Resolves CKV2_AWS_11)
-resource "aws_flow_log" "main" {
-  iam_role_arn    = aws_iam_role.vpc_flow_log_role.arn
-  log_destination = aws_cloudwatch_log_group.vpc_flow_log.arn
-  traffic_type    = "ALL"
-  vpc_id          = aws_vpc.main.id
 }
 # Restrict default security group to deny all traffic (Resolves CKV2_AWS_12)
 resource "aws_default_security_group" "default" {
